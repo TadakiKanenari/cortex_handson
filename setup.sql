@@ -1,0 +1,249 @@
+// Step1: テーブル作成 //
+
+-- ロールの指定
+USE ROLE ACCOUNTADMIN;
+USE WAREHOUSE COMPUTE_WH;
+
+
+// Step2: 各種オブジェクトの作成 //
+
+-- データベースの作成
+CREATE OR REPLACE DATABASE SNOWRETAIL_DB;
+-- スキーマの作成
+CREATE OR REPLACE SCHEMA SNOWRETAIL_DB.SNOWRETAIL_SCHEMA;
+-- スキーマの指定
+USE SCHEMA SNOWRETAIL_DB.SNOWRETAIL_SCHEMA;
+
+-- ステージの作成
+CREATE OR REPLACE STAGE SNOWRETAIL_DB.SNOWRETAIL_SCHEMA.FILE encryption = (type = 'snowflake_sse') DIRECTORY = (ENABLE = TRUE);
+CREATE OR REPLACE STAGE SNOWRETAIL_DB.SNOWRETAIL_SCHEMA.PDF encryption = (type = 'snowflake_sse') DIRECTORY = (ENABLE = TRUE);
+CREATE OR REPLACE STAGE SNOWRETAIL_DB.SNOWRETAIL_SCHEMA.SEMANTIC_MODEL_STAGE encryption = (type = 'snowflake_sse') DIRECTORY = (ENABLE = TRUE);
+
+
+// Step3: 公開されているGitからデータとスクリプトを取得 //
+
+-- Git連携のため、API統合を作成する
+CREATE OR REPLACE API INTEGRATION git_api_integration
+  API_PROVIDER = git_https_api
+  API_ALLOWED_PREFIXES = ('https://github.com/snow-jp-handson-org/')
+  ENABLED = TRUE;
+
+-- GIT統合の作成
+CREATE OR REPLACE GIT REPOSITORY GIT_INTEGRATION_FOR_HANDSON
+  API_INTEGRATION = git_api_integration
+  ORIGIN = 'https://github.com/snow-jp-handson-org/cortex-handson-jp.git';
+
+-- チェックする
+ls @GIT_INTEGRATION_FOR_HANDSON/branches/main;
+
+-- Githubからファイルを持ってくる
+COPY FILES INTO @SNOWRETAIL_DB.SNOWRETAIL_SCHEMA.FILE FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/data/ PATTERN ='.*\\.csv$';
+COPY FILES INTO @SNOWRETAIL_DB.SNOWRETAIL_SCHEMA.PDF FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/data/ PATTERN = '.*\\.pdf$';
+COPY FILES INTO @SNOWRETAIL_DB.SNOWRETAIL_SCHEMA.SEMANTIC_MODEL_STAGE FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson2/sales_analysis_model.yaml;
+
+// Step4: NotebookとStreamlitを作成 //
+
+-- Notebookの作成
+CREATE OR REPLACE NOTEBOOK cortex_handson_part1
+    FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson1
+    MAIN_FILE = 'cortex_handson_seminar_part1.ipynb'
+    QUERY_WAREHOUSE = COMPUTE_WH
+    WAREHOUSE = COMPUTE_WH;
+
+-- Streamlit in Snowflakeの作成
+CREATE OR REPLACE STREAMLIT sis_snowretail_analysis_dev
+    FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson2/dev
+    MAIN_FILE = 'mainpage.py'
+    QUERY_WAREHOUSE = COMPUTE_WH;
+
+-- (Option) MVP版のStreamlit in Snowflakeの作成
+-- CREATE OR REPLACE STREAMLIT sis_snowretail_analysis_mvp
+--     FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson2/mvp
+--     MAIN_FILE = 'mainpage.py'
+--     QUERY_WAREHOUSE = COMPUTE_WH;
+
+-- (Option) 完成版Notebookの作成
+-- CREATE OR REPLACE NOTEBOOK cortex_handson_part1_completed
+--     FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson1
+--     MAIN_FILE = 'cortex_handson_seminar_part1_completed.ipynb'
+--     QUERY_WAREHOUSE = COMPUTE_WH
+--     WAREHOUSE = COMPUTE_WH;
+
+
+// Step5: Cortex Search Service の作成 //
+
+-- Cortex Search用のウェアハウス作成
+CREATE OR REPLACE WAREHOUSE cortex_search_wh WITH WAREHOUSE_SIZE='X-SMALL';
+
+-- RAGチャットボット用の社内ドキュメント検索サービス
+-- 注意: SNOW_RETAIL_DOCUMENTSテーブルが作成された後に実行してください
+/*
+CREATE OR REPLACE CORTEX SEARCH SERVICE snow_retail_search_service
+    ON content
+    ATTRIBUTES title, document_type, department
+    WAREHOUSE = cortex_search_wh
+    TARGET_LAG = '1 day'
+    EMBEDDING_MODEL = 'voyage-multilingual-2'
+    AS (
+        SELECT 
+            document_id,
+            title,
+            content,
+            document_type,
+            department,
+            created_at,
+            updated_at,
+            version
+        FROM SNOW_RETAIL_DOCUMENTS
+    );
+*/
+
+
+// Step6: フォールバック用完成テーブルの作成 //
+
+-- Part1をスキップしてもPart2が動作するように、完成版テーブルを事前に作成
+-- これらはPart1の全処理を実行した結果と同じデータです
+-- アプリは自動的に実テーブルがなければこちらを参照します
+
+-- バックアップデータ用ステージの作成
+CREATE OR REPLACE STAGE BACKUP_STAGE 
+    ENCRYPTION = (TYPE = 'SNOWFLAKE_SSE') 
+    DIRECTORY = (ENABLE = TRUE);
+
+-- バックアップCSVをステージにコピー
+COPY FILES INTO @BACKUP_STAGE FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/data/backup/ PATTERN = '.*_backup\\.csv$';
+
+-- CSVファイルフォーマット
+CREATE OR REPLACE FILE FORMAT BACKUP_CSV_FORMAT
+    TYPE = 'CSV'
+    FIELD_DELIMITER = ','
+    FIELD_OPTIONALLY_ENCLOSED_BY = '"'
+    SKIP_HEADER = 1
+    NULL_IF = ('NULL', 'null', '');
+
+-- PRODUCT_MASTER_FALLBACK（Part1の成果物と同一データ）
+CREATE OR REPLACE TABLE PRODUCT_MASTER_FALLBACK AS
+SELECT
+    $1::string AS product_id,
+    $2::string AS product_name,
+    $3::integer AS unit_price
+FROM @BACKUP_STAGE/product_master_backup.csv
+(FILE_FORMAT => BACKUP_CSV_FORMAT);
+
+-- PRODUCT_MASTER_EMBED_FALLBACK（ベクトル埋め込み - 実行時に生成）
+CREATE OR REPLACE TABLE PRODUCT_MASTER_EMBED_FALLBACK AS 
+SELECT 
+    *, 
+    SNOWFLAKE.CORTEX.EMBED_TEXT_1024('multilingual-e5-large', product_name) AS product_name_embed 
+FROM PRODUCT_MASTER_FALLBACK;
+
+-- EC_DATA_WITH_PRODUCT_MASTER_FALLBACK（Part1の名寄せ結果と同一データ）
+CREATE OR REPLACE TABLE EC_DATA_WITH_PRODUCT_MASTER_FALLBACK AS
+SELECT
+    $1::string AS product_id_master,
+    $2::string AS product_name_master,
+    $3::integer AS unit_price_master,
+    $4::string AS transaction_id,
+    $5::date AS transaction_date,
+    $6::string AS product_name,
+    $7::integer AS quantity,
+    $8::integer AS unit_price,
+    $9::integer AS total_price,
+    $10::float AS similarity
+FROM @BACKUP_STAGE/ec_data_with_product_master_backup.csv
+(FILE_FORMAT => BACKUP_CSV_FORMAT);
+
+-- RETAIL_DATA_WITH_PRODUCT_MASTER_FALLBACK（Part1の名寄せ結果と同一データ）
+CREATE OR REPLACE TABLE RETAIL_DATA_WITH_PRODUCT_MASTER_FALLBACK AS
+SELECT
+    $1::string AS product_id_master,
+    $2::string AS product_name_master,
+    $3::integer AS unit_price_master,
+    $4::string AS transaction_id,
+    $5::date AS transaction_date,
+    $6::string AS product_name,
+    $7::integer AS quantity,
+    $8::integer AS unit_price,
+    $9::integer AS total_price,
+    $10::float AS similarity
+FROM @BACKUP_STAGE/retail_data_with_product_master_backup.csv
+(FILE_FORMAT => BACKUP_CSV_FORMAT);
+
+SELECT 'Fallback tables created from backup CSVs' AS status;
+
+
+// Step7: Cortex Agent の作成 //
+
+-- Agent作成権限の付与（同一スキーマ内）
+GRANT CREATE AGENT ON SCHEMA SNOWRETAIL_DB.SNOWRETAIL_SCHEMA TO ROLE ACCOUNTADMIN;
+
+-- Cortex Agent の作成
+-- 注意: Cortex Search ServiceとセマンティックモデルをPart1で作成した後に実行してください
+/*
+CREATE OR REPLACE AGENT SNOW_RETAIL_AGENT
+  COMMENT = 'スノーリテール統合AIアシスタント - ドキュメント検索と売上分析を統合'
+  PROFILE = '{"display_name": "スノーリテール AIアシスタント", "color": "blue"}'
+  FROM SPECIFICATION
+  $$
+  models:
+    orchestration: claude-haiku-4-5
+
+  orchestration:
+    budget:
+      seconds: 60
+      tokens: 16000
+
+  instructions:
+    response: "日本語で丁寧に回答してください。データ分析結果は分かりやすく説明し、ドキュメント検索結果は根拠を明示してください。"
+    orchestration: "売上や商品に関する質問にはAnalystを使用し、ポリシーやFAQに関する質問にはSearchを使用してください。"
+    system: "あなたはスノーリテール社の統合AIアシスタントです。売上データの分析と社内ドキュメントの検索を通じて、ユーザーの質問に回答します。"
+    sample_questions:
+      - question: "売上TOP10の商品を教えてください"
+        answer: "Analystツールを使用して売上ランキングを分析します。"
+      - question: "返品ポリシーについて教えてください"
+        answer: "Searchツールを使用して社内ドキュメントから返品ポリシーを検索します。"
+
+  tools:
+    - tool_spec:
+        type: "cortex_analyst_text_to_sql"
+        name: "SalesAnalyst"
+        description: "売上データや商品データに関する質問をSQL分析します"
+    - tool_spec:
+        type: "cortex_search"
+        name: "DocumentSearch"
+        description: "社内ドキュメント、FAQ、ポリシーを検索します"
+
+  tool_resources:
+    SalesAnalyst:
+      semantic_model_file: "@SNOWRETAIL_DB.SNOWRETAIL_SCHEMA.SEMANTIC_MODEL_STAGE/sales_analysis_model.yaml"
+    DocumentSearch:
+      name: "SNOWRETAIL_DB.SNOWRETAIL_SCHEMA.SNOW_RETAIL_SEARCH_SERVICE"
+      max_results: "5"
+      title_column: "title"
+      id_column: "document_id"
+  $$;
+
+SELECT 'Cortex Agent SNOW_RETAIL_AGENT created successfully' AS status;
+*/
+
+
+// Step8: (Option) 手動バックアップ復旧 //
+
+-- 完全なテーブル復旧が必要な場合（通常は不要 - アプリが自動でフォールバック参照）
+-- data/backup/restore_tables.sql を参照してください
+
+
+// =========================================================
+// セットアップ完了
+// =========================================================
+-- 以下の順序でハンズオンを進めてください:
+-- 1. Part1: cortex_handson_part1 ノートブックを実行
+-- 2. Part2: sis_snowretail_analysis_dev Streamlitアプリを使用
+-- 
+-- ★Part1をスキップする場合:
+-- Part2のアプリは自動的にフォールバックテーブルを参照するため、
+-- Part1を実行しなくてもPart2を体験できます。
+-- 
+-- ★Cortex Agentを使用する場合:
+-- 1. Part1のCortex Search Service作成セクションを実行
+-- 2. Step7のCREATE AGENT文のコメントを外して実行

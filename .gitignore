@@ -1,0 +1,19 @@
+# 作業用ファイル（後で削除）
+data/backup/_work_*
+
+# MacOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Snowflake CLI
+.snowflake/
+
