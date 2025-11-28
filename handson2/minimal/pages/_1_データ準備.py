@@ -19,12 +19,6 @@ from snowflake.snowpark.context import get_active_session
 from snowflake.snowpark.functions import col, lit
 from datetime import datetime
 import time
-import sys
-import os
-
-# 親ディレクトリをパスに追加（table_utilsをインポートするため）
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from table_utils import resolve_table_name, check_table_with_fallback, get_table_count_with_fallback
 
 # ページ設定
 st.set_page_config(layout="wide")
@@ -115,18 +109,18 @@ def process_reviews(embedding_model: str, limit: int = 10):
         
         # レビュー全体の感情分析（英語翻訳してから実行）
         translated_text = session.sql("""
-            SELECT SNOWFLAKE.CORTEX.『★★★修正対象★★★』(?, '', 'en') as translated
+            SELECT SNOWFLAKE.CORTEX.TRANSLATE(?, '', 'en') as translated
         """, params=[review['REVIEW_TEXT']]).collect()[0]['TRANSLATED']
         
         sentiment_score = session.sql("""
-            SELECT SNOWFLAKE.CORTEX.『★★★修正対象★★★』(?) as score
+            SELECT SNOWFLAKE.CORTEX.SENTIMENT(?) as score
         """, params=[translated_text]).collect()[0]['SCORE']
         
         # テキストをチャンクに分割
         chunks = session.sql("""
             SELECT t.value as chunk
             FROM (
-                SELECT SNOWFLAKE.CORTEX.『★★★修正対象★★★』(
+                SELECT SNOWFLAKE.CORTEX.SPLIT_TEXT_RECURSIVE_CHARACTER(
                     ?, 'none', 300, 30
                 ) as split_result
             ),
@@ -143,7 +137,7 @@ def process_reviews(embedding_model: str, limit: int = 10):
                 )
                 SELECT 
                     ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    SNOWFLAKE.CORTEX.『★★★修正対象★★★』(?, ?),
+                    SNOWFLAKE.CORTEX.EMBED_TEXT_1024(?, ?),
                     ?
             """, params=[
                 review['REVIEW_ID'], review['PRODUCT_ID'], review['CUSTOMER_ID'],
@@ -193,7 +187,7 @@ st.markdown("---")
 st.subheader("🗄️ セクション1: 既存データの確認")
 st.markdown("ワークショップで使用する既存のテーブルを確認しましょう。")
 
-# 既存テーブルのリスト（フォールバック対応テーブルを含む）
+# 既存テーブルのリスト
 existing_tables = {
     "RETAIL_DATA_WITH_PRODUCT_MASTER": "クレンジング済み店舗データ",
     "EC_DATA_WITH_PRODUCT_MASTER": "クレンジング済みECデータ", 
@@ -206,27 +200,15 @@ tab1, tab2 = st.tabs(["📋 テーブル確認", "🔍 データサンプル"])
 with tab1:
     st.markdown("#### 📋 既存テーブルの状況確認")
     
-    # テーブル存在確認（フォールバック対応 - 透過的）
+    # テーブル存在確認
     table_status = {}
-    
     for table_name, description in existing_tables.items():
-        # フォールバック対応のテーブル確認
-        info = check_table_with_fallback(table_name, session)
-        count, actual_table, is_fallback = get_table_count_with_fallback(table_name, session)
+        exists = check_table_exists(table_name)
+        count = get_table_count(table_name) if exists else 0
+        table_status[table_name] = {"exists": exists, "count": count, "description": description}
         
-        table_status[table_name] = {
-            "exists": info["exists"], 
-            "count": count, 
-            "description": description,
-            "actual_table": actual_table,
-            "is_fallback": is_fallback
-        }
-        
-        # フォールバックでも通常と同じ表示
-        if info["exists"]:
-            st.write(f"✅ **{table_name}** ({description}): {count:,}件")
-        else:
-            st.write(f"❌ **{table_name}** ({description}): 未作成")
+        status_icon = "✅" if exists else "❌"
+        st.write(f"{status_icon} **{table_name}** ({description}): {count:,}件")
     
     # 全テーブルが存在するかチェック
     all_tables_exist = all(status["exists"] for status in table_status.values())
