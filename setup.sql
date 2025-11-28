@@ -57,17 +57,23 @@ CREATE OR REPLACE STREAMLIT sis_snowretail_analysis_dev
     QUERY_WAREHOUSE = COMPUTE_WH;
 
 -- (Option) MVP版のStreamlit in Snowflakeの作成
--- CREATE OR REPLACE STREAMLIT sis_snowretail_analysis_mvp
---     FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson2/mvp
---     MAIN_FILE = 'mainpage.py'
---     QUERY_WAREHOUSE = COMPUTE_WH;
+CREATE OR REPLACE STREAMLIT sis_snowretail_analysis_mvp
+    FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson2/mvp
+    MAIN_FILE = 'mainpage.py'
+    QUERY_WAREHOUSE = COMPUTE_WH;
+
+-- (Option) Minimal版のStreamlit in Snowflakeの作成（データ準備・顧客分析のみ）
+CREATE OR REPLACE STREAMLIT sis_snowretail_analysis_minimal
+    FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson2/minimal
+    MAIN_FILE = 'mainpage.py'
+    QUERY_WAREHOUSE = COMPUTE_WH;
 
 -- (Option) 完成版Notebookの作成
--- CREATE OR REPLACE NOTEBOOK cortex_handson_part1_completed
---     FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson1
---     MAIN_FILE = 'cortex_handson_seminar_part1_completed.ipynb'
---     QUERY_WAREHOUSE = COMPUTE_WH
---     WAREHOUSE = COMPUTE_WH;
+CREATE OR REPLACE NOTEBOOK cortex_handson_part1_completed
+    FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson1
+    MAIN_FILE = 'cortex_handson_seminar_part1_completed.ipynb'
+    QUERY_WAREHOUSE = COMPUTE_WH
+    WAREHOUSE = COMPUTE_WH;
 
 
 // Step5: Cortex Search Service の作成 //
@@ -75,14 +81,24 @@ CREATE OR REPLACE STREAMLIT sis_snowretail_analysis_dev
 -- Cortex Search用のウェアハウス作成
 CREATE OR REPLACE WAREHOUSE cortex_search_wh WITH WAREHOUSE_SIZE='X-SMALL';
 
--- RAGチャットボット用の社内ドキュメント検索サービス
--- 注意: SNOW_RETAIL_DOCUMENTSテーブルが作成された後に実行してください
-/*
+-- RAGチャットボット用のドキュメントテーブル（空テーブルを先に作成）
+CREATE OR REPLACE TABLE SNOW_RETAIL_DOCUMENTS (
+    DOCUMENT_ID VARCHAR(16777216),
+    TITLE VARCHAR(16777216),
+    CONTENT VARCHAR(16777216),
+    DOCUMENT_TYPE VARCHAR(16777216),
+    DEPARTMENT VARCHAR(16777216),
+    CREATED_AT TIMESTAMP_NTZ(9),
+    UPDATED_AT TIMESTAMP_NTZ(9),
+    VERSION NUMBER(38,1)
+);
+
+-- Cortex Search Service（空テーブルでも作成可能、データ投入後に自動リフレッシュ）
 CREATE OR REPLACE CORTEX SEARCH SERVICE snow_retail_search_service
     ON content
     ATTRIBUTES title, document_type, department
     WAREHOUSE = cortex_search_wh
-    TARGET_LAG = '1 day'
+    TARGET_LAG = '1 minute'  -- データ投入後1分以内に自動インデックス更新
     EMBEDDING_MODEL = 'voyage-multilingual-2'
     AS (
         SELECT 
@@ -96,7 +112,12 @@ CREATE OR REPLACE CORTEX SEARCH SERVICE snow_retail_search_service
             version
         FROM SNOW_RETAIL_DOCUMENTS
     );
-*/
+
+-- ドキュメントデータを投入（Cortex Search Serviceが自動でインデックス更新）
+COPY INTO SNOW_RETAIL_DOCUMENTS 
+FROM @FILE 
+FILE_FORMAT = (TYPE = CSV SKIP_HEADER = 1 FIELD_OPTIONALLY_ENCLOSED_BY = '"') 
+FILES = ('snow_retail_documents.csv');
 
 
 // Step6: フォールバック用完成テーブルの作成 //
@@ -179,7 +200,7 @@ GRANT CREATE AGENT ON SCHEMA SNOWRETAIL_DB.SNOWRETAIL_SCHEMA TO ROLE ACCOUNTADMI
 
 -- Cortex Agent の作成
 -- 注意: Cortex Search ServiceとセマンティックモデルをPart1で作成した後に実行してください
-/*
+
 CREATE OR REPLACE AGENT SNOW_RETAIL_AGENT
   COMMENT = 'スノーリテール統合AIアシスタント - ドキュメント検索と売上分析を統合'
   PROFILE = '{"display_name": "スノーリテール AIアシスタント", "color": "blue"}'
@@ -188,20 +209,33 @@ CREATE OR REPLACE AGENT SNOW_RETAIL_AGENT
   models:
     orchestration: claude-haiku-4-5
 
-  orchestration:
-    budget:
-      seconds: 60
-      tokens: 16000
-
   instructions:
     response: "日本語で丁寧に回答してください。データ分析結果は分かりやすく説明し、ドキュメント検索結果は根拠を明示してください。"
     orchestration: "売上や商品に関する質問にはAnalystを使用し、ポリシーやFAQに関する質問にはSearchを使用してください。"
     system: "あなたはスノーリテール社の統合AIアシスタントです。売上データの分析と社内ドキュメントの検索を通じて、ユーザーの質問に回答します。"
     sample_questions:
+      # 売上データ分析（Cortex Analyst）
       - question: "売上TOP10の商品を教えてください"
         answer: "Analystツールを使用して売上ランキングを分析します。"
+      - question: "月別の売上推移を時系列で見せて"
+        answer: "Analystツールを使用して月別売上トレンドを分析します。"
+      - question: "店舗とECの売上を比較して"
+        answer: "Analystツールを使用してチャネル別売上を比較分析します。"
+      - question: "商品別の売上ランキングを作って"
+        answer: "Analystツールを使用して商品別売上をランキング形式で出力します。"
+      # 社内ドキュメント検索（Cortex Search）
       - question: "返品ポリシーについて教えてください"
         answer: "Searchツールを使用して社内ドキュメントから返品ポリシーを検索します。"
+      - question: "プライベートブランド商品の特徴について教えてください"
+        answer: "Searchツールを使用してPB商品に関するドキュメントを検索します。"
+      - question: "ポイントカードの有効期限について教えてください"
+        answer: "Searchツールを使用してポイントカードのルールを検索します。"
+      - question: "ネットスーパーの配送料金と時間帯について教えてください"
+        answer: "Searchツールを使用してネットスーパーのサービス情報を検索します。"
+      - question: "スノーリテールの基本理念について教えてください"
+        answer: "Searchツールを使用して企業理念に関するドキュメントを検索します。"
+      - question: "顧客満足度向上のための取り組みについて教えてください"
+        answer: "Searchツールを使用してCS向上施策に関するドキュメントを検索します。"
 
   tools:
     - tool_spec:
@@ -224,7 +258,7 @@ CREATE OR REPLACE AGENT SNOW_RETAIL_AGENT
   $$;
 
 SELECT 'Cortex Agent SNOW_RETAIL_AGENT created successfully' AS status;
-*/
+
 
 
 // Step8: (Option) 手動バックアップ復旧 //
