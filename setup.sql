@@ -81,7 +81,7 @@ CREATE OR REPLACE NOTEBOOK cortex_handson_part1_completed
 -- Cortex Search用のウェアハウス作成
 CREATE OR REPLACE WAREHOUSE cortex_search_wh WITH WAREHOUSE_SIZE='X-SMALL';
 
--- RAGチャットボット用のドキュメントテーブル（空テーブルを先に作成）
+-- RAGチャットボット用のドキュメントテーブル作成
 CREATE OR REPLACE TABLE SNOW_RETAIL_DOCUMENTS (
     DOCUMENT_ID VARCHAR(16777216),
     TITLE VARCHAR(16777216),
@@ -93,12 +93,18 @@ CREATE OR REPLACE TABLE SNOW_RETAIL_DOCUMENTS (
     VERSION NUMBER(38,1)
 );
 
--- Cortex Search Service（空テーブルでも作成可能、データ投入後に自動リフレッシュ）
+-- ドキュメントデータを先に投入
+COPY INTO SNOW_RETAIL_DOCUMENTS 
+FROM @FILE 
+FILE_FORMAT = (TYPE = CSV SKIP_HEADER = 1 FIELD_OPTIONALLY_ENCLOSED_BY = '"') 
+FILES = ('snow_retail_documents.csv');
+
+-- Cortex Search Service作成（データが既にあるので即座にインデックス構築）
 CREATE OR REPLACE CORTEX SEARCH SERVICE snow_retail_search_service
     ON content
     ATTRIBUTES title, document_type, department
     WAREHOUSE = cortex_search_wh
-    TARGET_LAG = '1 minute'  -- データ投入後1分以内に自動インデックス更新
+    TARGET_LAG = '1 day'
     EMBEDDING_MODEL = 'voyage-multilingual-2'
     AS (
         SELECT 
@@ -112,12 +118,6 @@ CREATE OR REPLACE CORTEX SEARCH SERVICE snow_retail_search_service
             version
         FROM SNOW_RETAIL_DOCUMENTS
     );
-
--- ドキュメントデータを投入（Cortex Search Serviceが自動でインデックス更新）
-COPY INTO SNOW_RETAIL_DOCUMENTS 
-FROM @FILE 
-FILE_FORMAT = (TYPE = CSV SKIP_HEADER = 1 FIELD_OPTIONALLY_ENCLOSED_BY = '"') 
-FILES = ('snow_retail_documents.csv');
 
 
 // Step6: フォールバック用完成テーブルの作成 //
