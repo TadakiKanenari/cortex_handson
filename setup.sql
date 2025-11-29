@@ -141,11 +141,11 @@ CREATE OR REPLACE CORTEX SEARCH SERVICE snow_retail_search_service
     );
 
 
-// Step7: フォールバック用完成テーブルの作成 //
+// Step7: Part1成果物テーブルの事前作成 //
 
--- Part1をスキップしてもPart2が動作するように、完成版テーブルを事前に作成
--- これらはPart1の全処理を実行した結果と同じデータです
--- アプリは自動的に実テーブルがなければこちらを参照します
+-- Part1をスキップしてもPart2・Cortex Agent・Semantic Modelが動作するように
+-- 完成版テーブルを「正式なテーブル名」で事前に作成します
+-- ★Part1を実行すると、これらのテーブルは上書きされます
 
 -- バックアップデータ用ステージの作成
 CREATE OR REPLACE STAGE BACKUP_STAGE 
@@ -163,8 +163,8 @@ CREATE OR REPLACE FILE FORMAT BACKUP_CSV_FORMAT
     SKIP_HEADER = 1
     NULL_IF = ('NULL', 'null', '');
 
--- PRODUCT_MASTER_FALLBACK（Part1の成果物と同一データ）
-CREATE OR REPLACE TABLE PRODUCT_MASTER_FALLBACK AS
+-- PRODUCT_MASTER（Part1の成果物と同一データ）
+CREATE OR REPLACE TABLE PRODUCT_MASTER AS
 SELECT
     $1::string AS product_id,
     $2::string AS product_name,
@@ -172,15 +172,15 @@ SELECT
 FROM @BACKUP_STAGE/product_master_backup.csv
 (FILE_FORMAT => BACKUP_CSV_FORMAT);
 
--- PRODUCT_MASTER_EMBED_FALLBACK（ベクトル埋め込み - 実行時に生成）
-CREATE OR REPLACE TABLE PRODUCT_MASTER_EMBED_FALLBACK AS 
+-- PRODUCT_MASTER_EMBED（ベクトル埋め込み - 実行時に生成）
+CREATE OR REPLACE TABLE PRODUCT_MASTER_EMBED AS 
 SELECT 
     *, 
     SNOWFLAKE.CORTEX.EMBED_TEXT_1024('multilingual-e5-large', product_name) AS product_name_embed 
-FROM PRODUCT_MASTER_FALLBACK;
+FROM PRODUCT_MASTER;
 
--- EC_DATA_WITH_PRODUCT_MASTER_FALLBACK（Part1の名寄せ結果と同一データ）
-CREATE OR REPLACE TABLE EC_DATA_WITH_PRODUCT_MASTER_FALLBACK AS
+-- EC_DATA_WITH_PRODUCT_MASTER（Part1の名寄せ結果と同一データ）
+CREATE OR REPLACE TABLE EC_DATA_WITH_PRODUCT_MASTER AS
 SELECT
     $1::string AS product_id_master,
     $2::string AS product_name_master,
@@ -195,8 +195,8 @@ SELECT
 FROM @BACKUP_STAGE/ec_data_with_product_master_backup.csv
 (FILE_FORMAT => BACKUP_CSV_FORMAT);
 
--- RETAIL_DATA_WITH_PRODUCT_MASTER_FALLBACK（Part1の名寄せ結果と同一データ）
-CREATE OR REPLACE TABLE RETAIL_DATA_WITH_PRODUCT_MASTER_FALLBACK AS
+-- RETAIL_DATA_WITH_PRODUCT_MASTER（Part1の名寄せ結果と同一データ）
+CREATE OR REPLACE TABLE RETAIL_DATA_WITH_PRODUCT_MASTER AS
 SELECT
     $1::string AS product_id_master,
     $2::string AS product_name_master,
@@ -211,7 +211,7 @@ SELECT
 FROM @BACKUP_STAGE/retail_data_with_product_master_backup.csv
 (FILE_FORMAT => BACKUP_CSV_FORMAT);
 
-SELECT 'Fallback tables created from backup CSVs' AS status;
+SELECT 'Part1 output tables pre-created from backup CSVs' AS status;
 
 
 // Step8: Cortex Agent の作成 //
