@@ -54,6 +54,15 @@ if 'selected_embedding_model' not in st.session_state:
 # =========================================================
 # ユーティリティ関数
 # =========================================================
+
+# Part1スキップ時の自動SWAP対象テーブル
+SWAP_TARGET_TABLES = [
+    "PRODUCT_MASTER",
+    "PRODUCT_MASTER_EMBED",
+    "EC_DATA_WITH_PRODUCT_MASTER",
+    "RETAIL_DATA_WITH_PRODUCT_MASTER"
+]
+
 def check_table_exists(table_name: str) -> bool:
     """テーブルの存在確認（複数の方法で確認）"""
     try:
@@ -79,6 +88,35 @@ def check_table_exists(table_name: str) -> bool:
         pass
     
     return False
+
+def auto_swap_prebuilt_tables():
+    """
+    Part1をスキップした場合、空のテーブルを検知して_PREBUILTテーブルとSWAPする
+    """
+    swapped = []
+    for table_name in SWAP_TARGET_TABLES:
+        try:
+            if not check_table_exists(table_name):
+                continue
+            result = session.sql(f"SELECT COUNT(*) as cnt FROM {table_name}").collect()
+            count = result[0]['CNT']
+            if count == 0:
+                prebuilt_table = f"{table_name}_PREBUILT"
+                if check_table_exists(prebuilt_table):
+                    prebuilt_result = session.sql(f"SELECT COUNT(*) as cnt FROM {prebuilt_table}").collect()
+                    if prebuilt_result[0]['CNT'] > 0:
+                        session.sql(f"ALTER TABLE {table_name} SWAP WITH {prebuilt_table}").collect()
+                        swapped.append(table_name)
+        except:
+            pass
+    return swapped
+
+# アプリ起動時に自動SWAP実行（session_stateで1回のみ）
+if 'auto_swap_executed' not in st.session_state:
+    swapped_tables = auto_swap_prebuilt_tables()
+    st.session_state.auto_swap_executed = True
+    if swapped_tables:
+        st.session_state.swapped_tables = swapped_tables
 
 def get_table_count(table_name: str) -> int:
     """テーブルのレコード数を取得"""

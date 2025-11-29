@@ -218,18 +218,9 @@ CREATE OR REPLACE TABLE RETAIL_DATA_WITH_PRODUCT_MASTER LIKE RETAIL_DATA_WITH_PR
 
 SELECT 'Prebuilt tables created, empty target tables ready for Part1' AS status;
 
-
-// Step7b: (オプション) Part1スキップ時のテーブル入れ替え //
-
--- ★★★ Part1をスキップしてPart2から開始する場合のみ実行 ★★★
--- 以下のALTER TABLE SWAP WITHで、完成データを正式テーブル名に入れ替えます
-
-ALTER TABLE PRODUCT_MASTER SWAP WITH PRODUCT_MASTER_PREBUILT;
-ALTER TABLE PRODUCT_MASTER_EMBED SWAP WITH PRODUCT_MASTER_EMBED_PREBUILT;
-ALTER TABLE EC_DATA_WITH_PRODUCT_MASTER SWAP WITH EC_DATA_WITH_PRODUCT_MASTER_PREBUILT;
-ALTER TABLE RETAIL_DATA_WITH_PRODUCT_MASTER SWAP WITH RETAIL_DATA_WITH_PRODUCT_MASTER_PREBUILT;
-
-SELECT 'Tables swapped - Part1 skipped, ready for Part2' AS status;
+-- ★ Part1スキップ時のSWAPはStreamlitアプリが自動実行します ★
+-- Part2のStreamlitを開くと、テーブルが空かどうかを検知し、
+-- 空の場合は自動的に_PREBUILTテーブルとSWAPします
 
 
 // Step8: Cortex Agent の作成 //
