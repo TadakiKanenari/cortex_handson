@@ -19,6 +19,12 @@ from snowflake.snowpark.context import get_active_session
 from snowflake.snowpark.functions import col, lit
 from datetime import datetime
 import time
+import sys
+import os
+
+# table_utilsをインポートするためのパス設定
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from table_utils import resolve_table_name, check_table_with_fallback, get_table_count_with_fallback
 
 # ページ設定
 st.set_page_config(layout="wide")
@@ -200,14 +206,28 @@ tab1, tab2 = st.tabs(["📋 テーブル確認", "🔍 データサンプル"])
 with tab1:
     st.markdown("#### 📋 既存テーブルの状況確認")
     
-    # テーブル存在確認
+    # テーブル存在確認（フォールバック機能対応）
     table_status = {}
     for table_name, description in existing_tables.items():
-        exists = check_table_exists(table_name)
-        count = get_table_count(table_name) if exists else 0
-        table_status[table_name] = {"exists": exists, "count": count, "description": description}
+        # フォールバック対応のテーブルチェック
+        info = check_table_with_fallback(table_name, session)
+        count = 0
+        if info["exists"]:
+            try:
+                result = session.sql(f"SELECT COUNT(*) as count FROM {info['actual_table']}").collect()
+                count = result[0]['COUNT']
+            except:
+                pass
         
-        status_icon = "✅" if exists else "❌"
+        table_status[table_name] = {
+            "exists": info["exists"], 
+            "count": count, 
+            "description": description,
+            "actual_table": info["actual_table"],
+            "is_fallback": info.get("is_fallback", False)
+        }
+        
+        status_icon = "✅" if info["exists"] else "❌"
         st.write(f"{status_icon} **{table_name}** ({description}): {count:,}件")
     
     # 全テーブルが存在するかチェック
@@ -221,7 +241,7 @@ with tab1:
 with tab2:
     st.markdown("#### 🔍 データサンプルの確認")
     
-    # テーブル選択
+    # テーブル選択（フォールバックを含む）
     available_tables = [name for name, status in table_status.items() if status["exists"]]
     
     if available_tables:
@@ -236,7 +256,9 @@ with tab2:
             """サンプルデータ表示のフラグメント"""
             if st.button("📄 サンプルデータ表示"):
                 try:
-                    sample_data = session.sql(f"SELECT * FROM {selected_table} LIMIT 5").collect()
+                    # 実際のテーブル名を取得（フォールバック対応）
+                    actual_table = table_status[selected_table]["actual_table"]
+                    sample_data = session.sql(f"SELECT * FROM {actual_table} LIMIT 5").collect()
                     if sample_data:
                         df_sample = pd.DataFrame([row.as_dict() for row in sample_data])
                         st.dataframe(df_sample, use_container_width=True)

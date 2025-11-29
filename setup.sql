@@ -76,7 +76,28 @@ CREATE OR REPLACE NOTEBOOK cortex_handson_part1_completed
     WAREHOUSE = COMPUTE_WH;
 
 
-// Step5: Cortex Search Service の作成 //
+// Step5: 基本テーブルの作成とデータ投入 //
+
+-- CUSTOMER_REVIEWSテーブル（Part2で使用）
+CREATE OR REPLACE TABLE CUSTOMER_REVIEWS (
+    REVIEW_ID VARCHAR(16777216),
+    PRODUCT_ID VARCHAR(16777216),
+    PRODUCT_NAME VARCHAR(16777216),
+    RATING NUMBER(38,0),
+    REVIEW_TEXT VARCHAR(16777216),
+    REVIEW_DATE DATE,
+    REVIEWER_AGE NUMBER(38,0),
+    REVIEWER_GENDER VARCHAR(16777216)
+);
+
+-- CUSTOMER_REVIEWSにデータ投入
+COPY INTO CUSTOMER_REVIEWS 
+FROM @FILE 
+FILE_FORMAT = (TYPE = CSV SKIP_HEADER = 1 FIELD_OPTIONALLY_ENCLOSED_BY = '"') 
+FILES = ('customer_reviews.csv');
+
+
+// Step6: Cortex Search Service の作成 //
 
 -- Cortex Search用のウェアハウス作成
 CREATE OR REPLACE WAREHOUSE cortex_search_wh WITH WAREHOUSE_SIZE='X-SMALL';
@@ -120,7 +141,7 @@ CREATE OR REPLACE CORTEX SEARCH SERVICE snow_retail_search_service
     );
 
 
-// Step6: フォールバック用完成テーブルの作成 //
+// Step7: フォールバック用完成テーブルの作成 //
 
 -- Part1をスキップしてもPart2が動作するように、完成版テーブルを事前に作成
 -- これらはPart1の全処理を実行した結果と同じデータです
@@ -193,7 +214,7 @@ FROM @BACKUP_STAGE/retail_data_with_product_master_backup.csv
 SELECT 'Fallback tables created from backup CSVs' AS status;
 
 
-// Step7: Cortex Agent の作成 //
+// Step8: Cortex Agent の作成 //
 
 -- Agent作成権限の付与（同一スキーマ内）
 GRANT CREATE AGENT ON SCHEMA SNOWRETAIL_DB.SNOWRETAIL_SCHEMA TO ROLE ACCOUNTADMIN;
@@ -261,7 +282,7 @@ SELECT 'Cortex Agent SNOW_RETAIL_AGENT created successfully' AS status;
 
 
 
-// Step8: (Option) 手動バックアップ復旧 //
+// Step9: (Option) 手動バックアップ復旧 //
 
 -- 完全なテーブル復旧が必要な場合（通常は不要 - アプリが自動でフォールバック参照）
 -- data/backup/restore_tables.sql を参照してください

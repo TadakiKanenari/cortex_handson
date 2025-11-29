@@ -863,7 +863,7 @@ st.success("""
 - AI_SUMMARIZE_AGGによる複数レビューの効率的な集約要約
 """)
 
-st.info("💡 **次のステップ**: Step3では、シンプルなチャットボットの実装を学習します。")
+# st.info("💡 **次のステップ**: Step3では、シンプルなチャットボットの実装を学習します。")
 
 st.markdown("---")
 st.markdown(f"**Snowflake Cortex Handson シナリオ#2 | Step2: 顧客の声分析**") 
