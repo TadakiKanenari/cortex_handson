@@ -112,7 +112,7 @@ SELECT 'NORMALIZED_RETAIL_DATA_EMBED restored: ' || COUNT(*) || ' rows' AS statu
 CREATE OR REPLACE TABLE PRODUCT_MASTER_APPLIED_LLM AS
 WITH normalized_product_master AS(
     SELECT *, AI_COMPLETE(
-        model => 'llama4-maverick',
+        model => 'claude-haiku-4-5',
         prompt => CONCAT('入力値からメーカーと商品名を分離してください。
             なお、必ずしもメーカー名があるわけではなく、メーカー名がない場合は空欄で返してください。入力値は',product_name, 'です'),
         model_parameters => {
