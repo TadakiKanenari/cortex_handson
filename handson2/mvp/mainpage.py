@@ -163,13 +163,6 @@ def render_home_page():
             "description": "自然言語によるデータ分析とダッシュボード",
             "functions": ["Cortex Analyst", "AI_AGG"],
             "time": "10分"
-        },
-        {
-            "step": "Step 6",
-            "title": "Cortex Agent",
-            "description": "Snowflake Intelligence統合AIアシスタント",
-            "functions": ["Cortex Agent", "Snowflake Intelligence"],
-            "time": "10分"
         }
     ]
     
