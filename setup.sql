@@ -237,7 +237,7 @@ CREATE OR REPLACE AGENT SNOW_RETAIL_AGENT
   FROM SPECIFICATION
   $$
   models:
-    orchestration: claude-haiku-4-5
+    orchestration: claude-sonnet-4-5
 
   instructions:
     response: "日本語で丁寧に回答してください。データ分析結果は分かりやすく説明し、ドキュメント検索結果は根拠を明示してください。"

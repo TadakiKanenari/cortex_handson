@@ -232,6 +232,48 @@ st.sidebar.info(f"""
 このモデルがテキストのベクトル化に使用されます。
 """)
 
+# =========================================================
+# データ修復機能（サイドバー）
+# =========================================================
+st.sidebar.markdown("---")
+st.sidebar.header("🔧 データ修復")
+st.sidebar.markdown("""
+Part1を実行せずにPart2から開始する場合、または
+Part1が中途半端な状態の場合は、以下のボタンで
+完成データに置き換えることができます。
+""")
+
+def manual_swap_prebuilt_tables():
+    """手動でPREBUILTテーブルとSWAP"""
+    swapped = []
+    errors = []
+    for table_name in SWAP_TARGET_TABLES:
+        try:
+            prebuilt_table = f"{table_name}_PREBUILT"
+            if check_table_exists(table_name) and check_table_exists(prebuilt_table):
+                session.sql(f"ALTER TABLE {table_name} SWAP WITH {prebuilt_table}").collect()
+                swapped.append(table_name)
+        except Exception as e:
+            errors.append(f"{table_name}: {str(e)}")
+    return swapped, errors
+
+if st.sidebar.button("🔄 完成データに置換", help="Part1の成果物テーブルを完成データに置き換えます"):
+    with st.sidebar:
+        with st.spinner("テーブルを置換中..."):
+            swapped, errors = manual_swap_prebuilt_tables()
+        
+        if swapped:
+            st.success(f"✅ {len(swapped)}個のテーブルを置換しました")
+            for t in swapped:
+                st.write(f"  - {t}")
+            st.rerun()
+        elif errors:
+            st.error("❌ 置換に失敗しました")
+            for e in errors:
+                st.write(f"  - {e}")
+        else:
+            st.info("置換対象のテーブルがありません")
+
 st.markdown("---")
 
 # =========================================================
