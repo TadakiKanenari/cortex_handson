@@ -43,32 +43,13 @@ COPY FILES INTO @SNOWRETAIL_DB.SNOWRETAIL_SCHEMA.SEMANTIC_MODEL_STAGE FROM @GIT_
 
 // Step4: NotebookとStreamlitを作成 //
 
--- Notebookの作成
-CREATE OR REPLACE NOTEBOOK cortex_handson_part1
-    FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson1
-    MAIN_FILE = 'cortex_handson_seminar_part1.ipynb'
-    QUERY_WAREHOUSE = COMPUTE_WH
-    WAREHOUSE = COMPUTE_WH;
-
 -- Streamlit in Snowflakeの作成
-CREATE OR REPLACE STREAMLIT sis_snowretail_analysis_dev
-    FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson2/dev
-    MAIN_FILE = 'mainpage.py'
-    QUERY_WAREHOUSE = COMPUTE_WH;
-
--- (Option) MVP版のStreamlit in Snowflakeの作成
-CREATE OR REPLACE STREAMLIT sis_snowretail_analysis_mvp
-    FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson2/mvp
-    MAIN_FILE = 'mainpage.py'
-    QUERY_WAREHOUSE = COMPUTE_WH;
-
--- (Option) Minimal版のStreamlit in Snowflakeの作成（データ準備・顧客分析のみ）
 CREATE OR REPLACE STREAMLIT sis_snowretail_analysis_minimal
     FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson2/minimal
     MAIN_FILE = 'mainpage.py'
     QUERY_WAREHOUSE = COMPUTE_WH;
 
--- (Option) 完成版Notebookの作成
+-- Notebookの作成
 CREATE OR REPLACE NOTEBOOK cortex_handson_part1_completed
     FROM @GIT_INTEGRATION_FOR_HANDSON/branches/main/handson1
     MAIN_FILE = 'cortex_handson_seminar_part1_completed.ipynb'
@@ -229,8 +210,6 @@ SELECT 'Prebuilt tables created, empty target tables ready for Part1' AS status;
 GRANT CREATE AGENT ON SCHEMA SNOWRETAIL_DB.SNOWRETAIL_SCHEMA TO ROLE ACCOUNTADMIN;
 
 -- Cortex Agent の作成
--- 注意: Cortex Search ServiceとセマンティックモデルをPart1で作成した後に実行してください
-
 CREATE OR REPLACE AGENT SNOW_RETAIL_AGENT
   COMMENT = 'スノーリテール統合AIアシスタント - ドキュメント検索と売上分析を統合'
   PROFILE = '{"display_name": "スノーリテール AIアシスタント", "color": "blue"}'
@@ -287,14 +266,7 @@ CREATE OR REPLACE AGENT SNOW_RETAIL_AGENT
       id_column: "document_id"
   $$;
 
-SELECT 'Cortex Agent SNOW_RETAIL_AGENT created successfully' AS status;
-
-
-
-// Step9: (Option) 手動バックアップ復旧 //
-
--- 完全なテーブル復旧が必要な場合（通常は不要 - アプリが自動でフォールバック参照）
--- data/backup/restore_tables.sql を参照してください
+SELECT 'setup successfully' AS status;
 
 
 // =========================================================
@@ -307,7 +279,3 @@ SELECT 'Cortex Agent SNOW_RETAIL_AGENT created successfully' AS status;
 -- ★Part1をスキップする場合:
 -- Part2のアプリは自動的にフォールバックテーブルを参照するため、
 -- Part1を実行しなくてもPart2を体験できます。
--- 
--- ★Cortex Agentを使用する場合:
--- 1. Part1のCortex Search Service作成セクションを実行
--- 2. Step7のCREATE AGENT文のコメントを外して実行
